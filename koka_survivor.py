@@ -257,34 +257,52 @@ class Laser(pg.sprite.Sprite):
     """
     一直線に出るレーザークラス
     """
-    def __init__(self, bird: Bird, duration: int = 3000):  # デフォルトの持続時間を3000ミリ秒に設定
+    def __init__(self, bird: Bird, target_pos: tuple[int, int], duration: int = 3000):
         super().__init__()
+
         self.vx, self.vy = bird.dire
+        # 水平または垂直方向に制限
+        if abs(self.vx) > abs(self.vy):
+            self.vy = 0
+        else:
+            self.vx = 0
+
+        if self.vx == 0 and self.vy == 0:
+            self.vx = 1 
+
         angle = math.degrees(math.atan2(-self.vy, self.vx))
-        self.image = pg.transform.rotozoom(pg.image.load(f"fig/biglaser.png"), angle, 1.0)
+
+        # レーザー画像のスケールと回転
+        original_image = pg.image.load(f"fig/biglaser.png")
+        screen_width, screen_height = pg.display.get_surface().get_size()
+        max_length = 4 * math.hypot(screen_width, screen_height)  # レーザーの最大長さ
+        scaled_image = pg.transform.scale(original_image, (int(max_length), original_image.get_height()))
+        self.image = pg.transform.rotozoom(scaled_image, angle, 1.0)
+
         self.rect = self.image.get_rect()
+        self.rect.center = bird.rect.center
+        bird_head_offset = (bird.rect.width // 2, -bird.rect.height // 2)
+        self.rect.center = (bird.rect.centerx + bird_head_offset[0], bird.rect.centery + bird_head_offset[1])
 
-        # レーザーを画面全体に伸ばす
-        self.image = pg.transform.scale(self.image, (WIDTH,HEIGHT))
+        self.speed = 0
+        self.duration = duration
+        self.spawn_time = pg.time.get_ticks()
 
-        # 発射位置をこうかとんの頭の位置に設定
-        self.rect_WIDTH = self.image.get_width()
-        self.rect.centerx = self.rect.centerx + self.rect_WIDTH/2
-        self.rect.centery = self.rect.centery
-
-        
-        self.speed = 0  # 動かないから速度は0
-        self.duration = duration  # ミリ秒
-        self.spawn_time = pg.time.get_ticks()  # 発生時刻
     
+    def calc_orientation(bird_pos, mouse_pos):
+        x_diff = mouse_pos[0] - bird_pos[0]
+        y_diff = mouse_pos[1] - bird_pos[1]
+        norm = math.hypot(x_diff, y_diff)
+        if norm == 0:  # ノルムがゼロの場合
+            return 0, 0  # デフォルトの方向ベクトルを返す（ここでは水平）
+        return x_diff / norm, y_diff / norm
+
     def update(self):
-        """
-        レーザーを速度ベクトルself.vx, self.vyに基づき移動させる
-        """
         current_time = pg.time.get_ticks()
         if current_time - self.spawn_time > self.duration:  # 指定時間が経過したら
             self.kill()  # レーザーを消す
-
+            
+            
 class NeoBeam(pg.sprite.Sprite):
     """
     一度に複数方向へビームを発射するクラス
@@ -511,7 +529,7 @@ def main():
         if tmr % 100 == 0:  # 200フレームに1回，敵機を出現させる
             emys.add(Enemy(bird))  # 鳥のインスタンスを渡す
         if tmr%500 == 0:  #500フレームに1回攻撃を出現させる。
-            beams.add(Laser(bird))
+            beams.add(Laser(bird, pg.mouse.get_pos()))
 
         for emy in pg.sprite.groupcollide(emys, beams, True, True).keys():
             exps.add(Explosion(emy, 100))  # 爆発エフェクト
@@ -594,7 +612,6 @@ def main():
         emys.update()
         emys.draw(screen)
         lasers.update()  # レーザーの更新を追加     
-        lasers.draw(screen)  # レーザーの描画を追加
         bombs.update()
         bombs.draw(screen)
         exps.update()
@@ -605,6 +622,7 @@ def main():
         blades.draw(screen)
         for blade in blades:
             blade.draw(screen)
+        lasers.draw(screen)  # レーザーの描画を追加
         gravities.draw(screen)  
         score.update(screen)
         beams.draw(screen)
