@@ -190,55 +190,47 @@ class Laser(pg.sprite.Sprite):
     """
     一直線に出るレーザークラス
     """
-    def __init__(self, bird: Bird, duration: int = 3000):  # デフォルトの持続時間を3000ミリ秒に設定
+    def __init__(self, bird: Bird, target_pos: tuple[int, int], duration: int = 3000):
         super().__init__()
+
         self.vx, self.vy = bird.dire
+        # 水平または垂直方向に制限
+        if abs(self.vx) > abs(self.vy):
+            self.vy = 0
+        else:
+            self.vx = 0
+
+        if self.vx == 0 and self.vy == 0:
+            self.vx = 1 
+
         angle = math.degrees(math.atan2(-self.vy, self.vx))
-        self.image = pg.transform.rotozoom(pg.image.load(f"fig/biglaser.png"), angle, 1.0)
 
-        # レーザーを画面全体に伸ばす
-        self.image = pg.transform.scale(self.image, (WIDTH,HEIGHT))
+        # レーザー画像のスケールと回転
+        original_image = pg.image.load(f"fig/biglaser.png")
+        screen_width, screen_height = pg.display.get_surface().get_size()
+        max_length = 4 * math.hypot(screen_width, screen_height)  # レーザーの最大長さ
+        scaled_image = pg.transform.scale(original_image, (int(max_length), original_image.get_height()))
+        self.image = pg.transform.rotozoom(scaled_image, angle, 1.0)
 
-        # 発射位置をこうかとんの頭の位置に設定
         self.rect = self.image.get_rect()
-        self.rect.centerx = bird.rect.centerx  # こうかとんの中心位置
-        self.rect.top = bird.rect.top  # こうかとんの頭の位置
+        self.rect.center = bird.rect.center
+        bird_head_offset = (bird.rect.width // 2, -bird.rect.height // 2)
+        self.rect.center = (bird.rect.centerx + bird_head_offset[0], bird.rect.centery + bird_head_offset[1])
 
-        # 発射位置をこうかとんの頭の位置に設定
-        self.rect = self.image.get_rect()
-        if self.vx == 0 and self.vy == -1:  # 上向き
-            self.rect.centerx = bird.rect.centerx
-            self.rect.bottom = bird.rect.top
-        elif self.vx == 0 and self.vy == 1:  # 下向き
-            self.rect.centerx = bird.rect.centerx
-            self.rect.top = bird.rect.bottom
-        elif self.vx == 1 and self.vy == 0:  # 右向き
-            self.rect.left = bird.rect.right
-            self.rect.centery = bird.rect.centery
-        elif self.vx == -1 and self.vy == 0:  # 左向き
-            self.rect.right = bird.rect.left
-            self.rect.centery = bird.rect.centery
-        elif self.vx == 1 and self.vy == -1:  # 右上向き
-            self.rect.left = bird.rect.right
-            self.rect.bottom = bird.rect.top
-        elif self.vx == 1 and self.vy == 1:  # 右下向き
-            self.rect.left = bird.rect.right
-            self.rect.top = bird.rect.bottom
-        elif self.vx == -1 and self.vy == -1:  # 左上向き
-            self.rect.right = bird.rect.left
-            self.rect.bottom = bird.rect.top
-        elif self.vx == -1 and self.vy == 1:  # 左下向き
-            self.rect.right = bird.rect.left
-            self.rect.top = bird.rect.bottom
-        
-        self.speed = 0  # 動かないから速度は0
-        self.duration = duration  # ミリ秒
-        self.spawn_time = pg.time.get_ticks()  # 発生時刻
+        self.speed = 0
+        self.duration = duration
+        self.spawn_time = pg.time.get_ticks()
+
     
+    def calc_orientation(bird_pos, mouse_pos):
+        x_diff = mouse_pos[0] - bird_pos[0]
+        y_diff = mouse_pos[1] - bird_pos[1]
+        norm = math.hypot(x_diff, y_diff)
+        if norm == 0:  # ノルムがゼロの場合
+            return 0, 0  # デフォルトの方向ベクトルを返す（ここでは水平）
+        return x_diff / norm, y_diff / norm
+
     def update(self):
-        """
-        レーザーを速度ベクトルself.vx, self.vyに基づき移動させる
-        """
         current_time = pg.time.get_ticks()
         if current_time - self.spawn_time > self.duration:  # 指定時間が経過したら
             self.kill()  # レーザーを消す
