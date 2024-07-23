@@ -7,6 +7,7 @@ import pygame as pg
 import pygame
 
 
+
 WIDTH = 1100  # ゲームウィンドウの幅
 HEIGHT = 650  # ゲームウィンドウの高さ
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -72,8 +73,13 @@ class Bird(pg.sprite.Sprite):
         self.image = self.imgs[self.dire]
         self.rect = self.image.get_rect()
         self.rect.center = xy
-        self.speed = 10
-        
+        self.speed = 6
+
+        # レベルと経験値の初期化
+        self.level = 1
+        self.experience = 0
+        self.exp_to_next_level = 50
+        self.font = pg.font.Font(None, 50)
 
     def change_img(self, num: int, screen: pg.Surface):
         """
@@ -84,27 +90,87 @@ class Bird(pg.sprite.Sprite):
         self.image = pg.transform.rotozoom(pg.image.load(f"fig/{num}.png"), 0, 1.0)
         screen.blit(self.image, self.rect)
 
-    def update(self, key_lst: list[bool], screen: pg.Surface):
+    # マウスの方向にスピード5で進むようにする
+    def update(self, mouse_pos: tuple[int, int], screen: pg.Surface):
         """
-        押下キーに応じてこうかとんを移動させる
-        引数1 key_lst：押下キーの真理値リスト
+        マウスの方向に応じてこうかとんを移動させる
+        引数1 mouse_pos：マウスの現在位置座標タプル
         引数2 screen：画面Surface
         """
-        sum_mv = [0, 0]
-        current_speed = self.speed #current_speedにデフォルトのスピードを入れる
-        if key_lst[pg.K_LSHIFT]: #シフト押したらスピード20にする
-            current_speed = 20
-        for k, mv in __class__.delta.items():
-            if key_lst[k]:
-                sum_mv[0] += mv[0]
-                sum_mv[1] += mv[1]
-        self.rect.move_ip(current_speed*sum_mv[0], current_speed*sum_mv[1])
+        x_diff, y_diff = mouse_pos[0] - self.rect.centerx, mouse_pos[1] - self.rect.centery
+        norm = math.sqrt(x_diff**2 + y_diff**2)
+
+    def gain_experience(self, amount: int):
+        """
+        経験値を取得し、レベルアップをチェックする
+        引数 amount: 獲得する経験値の量
+        """
+        self.experience += amount
+        if self.experience >= self.exp_to_next_level:
+            self.level_up()
+
+    def level_up(self):
+        """
+        レベルアップ処理
+        """
+        self.level += 1
+        self.experience = 0  # 経験値をリセット
+        if self.level == 2:
+            self.exp_to_next_level = 100  # レベル3になるための経験値を100に設定
+        elif self.level == 3:
+            self.exp_to_next_level = 100  # 次のレベルまでの経験値を150に設定
+        self.speed += 1  # レベルアップ時に速度を上げるなどの強化
+
+    def display_level(self, screen: pg.Surface):
+        """
+        レベルを画面に表示する
+        引数 screen: 画面Surface
+        """
+        level_surf = self.font.render(f"Level: {self.level}", True, (0, 255, 0))
+        screen.blit(level_surf, (50, 50))
+
+    def display_experience_bar(self, screen: pg.Surface):
+        """
+        経験値ゲージを画面に表示する
+        引数 screen: 画面Surface
+        """
+        bar_width = 400
+        bar_height = 20
+        filled_bar_width = int(bar_width * self.experience / self.exp_to_next_level)
+        
+        # 背景のバー
+        pg.draw.rect(screen, (128, 128, 128), (50, 100, bar_width, bar_height)) # グレー
+        # 埋まっている部分
+        pg.draw.rect(screen, (0, 255, 0), (50, 100, filled_bar_width, bar_height)) # 緑
+
+    def update(self, mouse_pos: tuple[int, int], screen: pg.Surface):
+        """
+        マウスの方向に応じてこうかとんを移動させる
+        引数1 mouse_pos：マウスの現在位置座標タプル
+        引数2 screen：画面Surface
+        """
+        x_diff, y_diff = mouse_pos[0] - self.rect.centerx, mouse_pos[1] - self.rect.centery
+        norm = math.sqrt(x_diff**2 + y_diff**2)
+        if norm <= self.speed:
+            self.rect.centerx = mouse_pos[0]
+            self.rect.centery = mouse_pos[1]
+        else:
+            self.rect.move_ip(self.speed * x_diff / norm, self.speed * y_diff / norm)
+        
         if check_bound(self.rect) != (True, True):
-            self.rect.move_ip(-current_speed*sum_mv[0], -current_speed*sum_mv[1])
-        if not (sum_mv[0] == 0 and sum_mv[1] == 0):
-            self.dire = tuple(sum_mv)
-            self.image = self.imgs[self.dire]
+            self.rect.move_ip(-self.speed * x_diff / norm, -self.speed * y_diff / norm)
+        
+        if x_diff != 0 or y_diff != 0:
+            self.dire = (x_diff / norm, y_diff / norm)
+            angle = math.degrees(math.atan2(-self.dire[1], self.dire[0]))
+            self.image = pg.transform.rotozoom(self.imgs[(+1, 0)], angle, 1.0)
+        
         screen.blit(self.image, self.rect)
+        self.display_level(screen)
+        self.display_experience_bar(screen)
+
+
+
     
     def shoot_laser(self):
         """
@@ -149,24 +215,25 @@ class Bomb(pg.sprite.Sprite):
 
 
 class Beam(pg.sprite.Sprite):
-    """
-    ビームに関するクラス
-    """
-    def __init__(self, bird: Bird, angle0=0):
+    def __init__(self, bird: Bird, target: pg.Rect):
         """
         ビーム画像Surfaceを生成する
         引数 bird：ビームを放つこうかとん
+        引数 target：ビームの目標となる敵
         """
         super().__init__()
-        self.vx, self.vy = bird.dire
-        angle = math.degrees(math.atan2(-self.vy, self.vx)) + angle0
+        # こうかとん(bird)から敵(target)への方向ベクトルを計算
+        self.vx, self.vy = calc_orientation(bird.rect, target)
+        # ビームの角度を計算
+        angle = math.degrees(math.atan2(-self.vy, self.vx))
+        # ビーム画像を方向に合わせて回転
         self.image = pg.transform.rotozoom(pg.image.load(f"fig/beam.png"), angle, 2.0)
-        self.vx = math.cos(math.radians(angle))
-        self.vy = -math.sin(math.radians(angle))
         self.rect = self.image.get_rect()
-        self.rect.centery = bird.rect.centery+bird.rect.height*self.vy
-        self.rect.centerx = bird.rect.centerx+bird.rect.width*self.vx
+        # ビームの初期位置を設定
+        self.rect.centery = bird.rect.centery + bird.rect.height * self.vy
+        self.rect.centerx = bird.rect.centerx + bird.rect.width * self.vx
         self.speed = 10    
+
 
     def update(self):
         """
@@ -234,7 +301,8 @@ class Laser(pg.sprite.Sprite):
         current_time = pg.time.get_ticks()
         if current_time - self.spawn_time > self.duration:  # 指定時間が経過したら
             self.kill()  # レーザーを消す
-
+            
+            
 class NeoBeam(pg.sprite.Sprite):
     """
     一度に複数方向へビームを発射するクラス
@@ -288,28 +356,51 @@ class Enemy(pg.sprite.Sprite):
     """
     敵機に関するクラス
     """
-    imgs = [pg.image.load(f"fig/alien{i}.png") for i in range(1, 4)]
+    imgs = [pg.image.load(f"fig/enemy{i}.png") for i in range(1, 4)]
     
-    def __init__(self):
+    def __init__(self, bird: Bird):
         super().__init__()
-        self.image = random.choice(__class__.imgs)
+        self.original_image = random.choice(__class__.imgs)
+        self.image = self.original_image
         self.rect = self.image.get_rect()
-        self.rect.center = random.randint(0, WIDTH), 0
-        self.vx, self.vy = 0, +6
-        self.bound = random.randint(50, HEIGHT//2)  # 停止位置
-        self.state = "down"  # 降下状態or停止状態
-        self.interval = random.randint(50, 300)  # 爆弾投下インターバル
+        self.bird = bird
+
+        direction = random.choice(['top', 'left', 'right', 'bottom'])
+        if direction == 'top':
+            self.rect.center = random.randint(0, WIDTH), 0
+        elif direction == 'left':
+            self.rect.center = 0, random.randint(0, HEIGHT)
+        elif direction == 'right':
+            self.rect.center = WIDTH, random.randint(0, HEIGHT)
+        elif direction == 'bottom':
+            self.rect.center = random.randint(0, WIDTH), HEIGHT
+        
+        self.speed = 4
 
     def update(self):
         """
-        敵機を速度ベクトルself.vyに基づき移動（降下）させる
-        ランダムに決めた停止位置_boundまで降下したら，_stateを停止状態に変更する
-        引数 screen：画面Surface
+        敵機をこうかとんの位置に向かって移動させる
         """
-        if self.rect.centery > self.bound:
-            self.vy = 0
-            self.state = "stop"
-        self.rect.move_ip(self.vx, self.vy)
+        bird_x, bird_y = self.bird.rect.center  # こうかとんの位置を取得
+        x_diff, y_diff = bird_x - self.rect.centerx, bird_y - self.rect.centery
+        angle = math.degrees(math.atan2(-y_diff, x_diff))  # 角度を計算
+
+        if abs(x_diff) > abs(y_diff):  # 横方向の移動が大きい場合
+            if x_diff > 0:  # こうかとんが右にいる場合
+                self.image = pg.transform.flip(self.original_image, True, False)
+            else:  # こうかとんが左にいる場合
+                self.image = self.original_image
+            self.image = pg.transform.rotate(self.image, 0)
+        else:  # 縦方向の移動が大きい場合
+            if y_diff < 0:  # こうかとんが下にいる場合
+                self.image = pg.transform.rotate(self.original_image, -90)
+            else:  # こうかとんが上にいる場合
+                self.image = pg.transform.rotate(self.original_image, 90)
+
+        norm = math.sqrt(x_diff**2 + y_diff**2)
+        if norm != 0:
+            self.vx, self.vy = (self.speed * x_diff / norm, self.speed * y_diff / norm)
+            self.rect.move_ip(self.vx, self.vy)
 
 
 class Score:
@@ -345,13 +436,56 @@ class Gravity(pg.sprite.Sprite):
         if self.life < 0:
             self.kill()
 
+class RollBlade(pg.sprite.Sprite):
+    def __init__(self, bird: Bird, num):
+        super().__init__()
+        self.bird = bird
+        self.blade_count = num
+        self.speed = 3
+        self.radius = 100
+        self.angle = 0
+        self.size = 75
+        
+
+        self.original_image = pg.image.load("fig/blade.png").convert_alpha()
+        self.image = pg.transform.scale(self.original_image, (self.size, self.size))
+        self.rect = self.original_image.get_rect()
+
+    def update(self):
+        self.angle = (self.angle + self.speed) % 360
+        self.update_positions()
+
+    def update_positions(self):
+        for i in range(self.blade_count):
+            angle_offset = 360 / self.blade_count * i
+            rad_angle = math.radians(self.angle + angle_offset)
+            blade_rect = self.image.get_rect()
+            blade_rect.center = (
+                self.bird.rect.centerx + self.radius * math.cos(rad_angle),
+                self.bird.rect.centery + self.radius * math.sin(rad_angle)
+            )
+            self.image = pg.transform.rotate(self.original_image, -(self.angle + angle_offset))
+            self.rect = blade_rect
+
+    def draw(self, screen):
+        for i in range(self.blade_count):
+            angle_offset = 360 / self.blade_count * i
+            rad_angle = math.radians(self.angle + angle_offset)
+            blade_rect = self.image.get_rect()
+            blade_rect.center = (
+                self.bird.rect.centerx + self.radius * math.cos(rad_angle),
+                self.bird.rect.centery + self.radius * math.sin(rad_angle)
+            )
+            rotated_image = pg.transform.rotate(self.original_image, -(self.angle + angle_offset))
+            screen.blit(rotated_image, blade_rect)
 
 def main():
     pg.display.set_caption("真！こうかとん無双")
     screen = pg.display.set_mode((WIDTH, HEIGHT))
     bg_img = pg.image.load(f"fig/aozora.jpg")
-    scaled_bg_img = pygame.transform.scale(bg_img,(int(bg_img.get_width() * 0.7), int(bg_img.get_height() * 0.7)))
+    scaled_bg_img = pg.transform.scale(bg_img, (int(bg_img.get_width() * 0.7), int(bg_img.get_height() * 0.7)))
     score = Score()
+    num = 1 #Bladeの数
 
     bird = Bird(3, (900, 400))
     bombs = pg.sprite.Group()
@@ -359,61 +493,88 @@ def main():
     exps = pg.sprite.Group()
     emys = pg.sprite.Group()
     gravities = pg.sprite.Group()
+    blades = pg.sprite.Group()
+    blades.add(RollBlade(bird, num))
     lasers = pg.sprite.Group()  # レーザーのグループを追加
 
     tmr = 0
     clock = pg.time.Clock()
+
+
     while True:
         key_lst = pg.key.get_pressed()
+        if tmr % 100 == 0:
+            if emys:  # 敵が存在する場合
+                # 最も近い敵を選択
+                nearest_enemy = min(emys, key=lambda emy: math.hypot(bird.rect.centerx - emy.rect.centerx, bird.rect.centery - emy.rect.centery))
+                # 最も近い敵の方向にビームを発射
+                beams.add(Beam(bird, nearest_enemy.rect))
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 return 0
-            
+        mouse_pos = pg.mouse.get_pos()
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                return 0
+            if event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
+                if emys:
+                    nearest_enemy = min(emys, key=lambda emy: math.hypot(bird.rect.centerx - emy.rect.centerx, bird.rect.centery - emy.rect.centery))
+                    beams.add(Beam(bird, nearest_enemy.rect))
             if event.type == pg.KEYDOWN and event.key == pg.K_RETURN:
                 if score.value >= 200:
                     gravities.add(Gravity(400))
+                    score.value -= 200
 
-            for beam in beams:
-                beam.update()
-                if not check_bound(beam.rect):
-                    beam.kill()
-
-
-                    
-            if event.type == pg.KEYDOWN:
-                if event.key == pg.K_SPACE and key_lst[pg.K_LSHIFT]: #シフト押下状態でスペースを押すと
-                    neobeam = NeoBeam(bird, 5) #ビームを複数発射
-                    beams.add(neobeam.gen_beams())
-                elif event.key == pg.K_SPACE:
-                    screen.blit(scaled_bg_img, [0, 0])
-                elif event.key == pg.K_TAB:  # Tabキーを押すとレーザーを発射
-                    lasers.add(bird.shoot_laser())
-    
-        screen.blit(bg_img, [0, 0])
-
-        if tmr%200 == 0:  # 200フレームに1回，敵機を出現させる
-            emys.add(Enemy())
-        if tmr%50 == 0:  #50フレームに1回攻撃を出現させる。
-            beams.add(Beam(bird))
+        screen.blit(scaled_bg_img, [0, 0])
+        if tmr % 100 == 0:  # 200フレームに1回，敵機を出現させる
+            emys.add(Enemy(bird))  # 鳥のインスタンスを渡す
         if tmr%500 == 0:  #500フレームに1回攻撃を出現させる。
-            beams.add(Laser(bird))
-
-        for emy in emys:
-            if emy.state == "stop" and tmr%emy.interval == 0:
-                  # 敵機が停止状態に入ったら，intervalに応じて爆弾投下
-                bombs.add(Bomb(emy, bird))
+            beams.add(Laser(bird, pg.mouse.get_pos()))
 
         for emy in pg.sprite.groupcollide(emys, beams, True, True).keys():
             exps.add(Explosion(emy, 100))  # 爆発エフェクト
             score.value += 10  # 10点アップ
             bird.change_img(6, screen)  # こうかとん喜びエフェクト
+            bird.gain_experience(10)  # 経験値を獲得
 
         for bomb in pg.sprite.groupcollide(bombs, beams, True, True).keys():
             exps.add(Explosion(bomb, 50))  # 爆発エフェクト
             score.value += 1  # 1点アップ
+            bird.gain_experience(5)  # 経験値を獲得
 
         if len(pg.sprite.spritecollide(bird, bombs, True)) != 0:
-            bird.change_img(8, screen) # こうかとん悲しみエフェクト
+            bird.change_img(8, screen)  # こうかとん悲しみエフェクト
+
+        
+
+        for emy in pg.sprite.groupcollide(emys, blades, True, False).keys():
+            exps.add(Explosion(emy, 100))
+            score.value += 10
+            bird.change_img(6, screen)
+            bird.gain_experience(10) 
+
+        for bomb in pg.sprite.groupcollide(bombs, blades, True, False).keys():
+            exps.add(Explosion(bomb, 50))
+            score.value += 1
+            bird.gain_experience(5) 
+
+
+        if len(pg.sprite.spritecollide(bird, bombs, True)) != 0:
+            bird.change_img(8, screen)
+            score.update(screen)
+            pg.display.update()
+            time.sleep(2)
+            return
+
+        if len(pg.sprite.spritecollide(bird, emys, True)) != 0:
+            bird.change_img(8, screen)  # こうかとん悲しみエフェクト
+            score.update(screen)
+            pg.display.update()
+            time.sleep(2)
+            return
+        
+        if len(pg.sprite.spritecollide(bird, emys, True)) != 0:
+            bird.change_img(8, screen)  # こうかとん悲しみエフェクト
             score.update(screen)
             pg.display.update()
             time.sleep(2)
@@ -430,10 +591,12 @@ def main():
             for bomb in pg.sprite.spritecollide(gravity, bombs, True):
                 exps.add(Explosion(bomb, 50))
                 score.value += 1
-            
+                bird.gain_experience(5)  # 経験値を獲得
+
             for bomb in pg.sprite.spritecollide(gravity, emys, True):
                 exps.add(Explosion(bomb, 50))
                 score.value += 10
+                bird.gain_experience(10)  # 経験値を獲得
 
         for laser in pg.sprite.groupcollide(lasers, emys, False, True).keys():
             exps.add(Explosion(laser, 100))  # 爆発エフェクト
@@ -443,19 +606,23 @@ def main():
             exps.add(Explosion(laser, 50))  # 爆発エフェクト
             score.value += 1  # 1点アップ
         
-        
-        bird.update(key_lst, screen)
+        bird.update(mouse_pos, screen)
         beams.update()
         beams.draw(screen)
         emys.update()
         emys.draw(screen)
         lasers.update()  # レーザーの更新を追加     
-        lasers.draw(screen)  # レーザーの描画を追加
         bombs.update()
         bombs.draw(screen)
         exps.update()
         exps.draw(screen)
         gravities.update()
+        gravities.draw(screen)
+        blades.update()
+        blades.draw(screen)
+        for blade in blades:
+            blade.draw(screen)
+        lasers.draw(screen)  # レーザーの描画を追加
         gravities.draw(screen)  
         score.update(screen)
         beams.draw(screen)
@@ -465,8 +632,10 @@ def main():
         clock.tick(50)
 
 
+
 if __name__ == "__main__":
     pg.init()
     main()
     pg.quit()
     sys.exit()
+
